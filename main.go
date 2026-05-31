@@ -24,9 +24,10 @@ type Order struct {
 
 type OrderWithStock struct {
 	Order
-	ProductName    string `json:"product_name,omitempty"`
-	StockAvailable int    `json:"stock_available,omitempty"`
-	Warehouse      string `json:"warehouse,omitempty"`
+	ProductName    string  `json:"product_name,omitempty"`
+	StockAvailable int     `json:"stock_available,omitempty"`
+	Warehouse      string  `json:"warehouse,omitempty"`
+	TotalValue     float64 `json:"total_value"`
 }
 
 var db *sql.DB
@@ -125,7 +126,7 @@ func handleGetOrders(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&o.ID, &o.ProductID, &o.Quantity, &o.Status, &o.CreatedAt); err != nil {
 			continue
 		}
-		enriched := OrderWithStock{Order: o}
+		enriched := OrderWithStock{Order: o, TotalValue: float64(o.Quantity) * 10.99}
 		stock, err := fetchStock(inventoryURL, o.ProductID)
 		if err == nil {
 			enriched.ProductName = stock.ProductName
