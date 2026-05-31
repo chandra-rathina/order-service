@@ -11,6 +11,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type Order struct {
@@ -31,42 +32,59 @@ type OrderWithStock struct {
 var db *sql.DB
 
 func initDB() {
-	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		getEnv("DB_HOST", "localhost"),
-		getEnv("DB_PORT", "5432"),
-		getEnv("DB_USER", "postgres"),
-		getEnv("DB_PASSWORD", "postgres"),
-		getEnv("DB_NAME", "orders"),
-	)
+	driver := getEnv("DB_DRIVER", "postgres")
+	var dsn string
+	if driver == "sqlite3" {
+		dsn = getEnv("DB_PATH", "/tmp/orders.db")
+	} else {
+		dsn = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+			getEnv("DB_HOST", "localhost"),
+			getEnv("DB_PORT", "5432"),
+			getEnv("DB_USER", "postgres"),
+			getEnv("DB_PASSWORD", "postgres"),
+			getEnv("DB_NAME", "orders"),
+		)
+	}
 	var err error
-	db, err = sql.Open("postgres", dsn)
+	db, err = sql.Open(driver, dsn)
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 	if err = db.Ping(); err != nil {
 		log.Fatalf("failed to ping database: %v", err)
 	}
-	createTable()
-	seedData()
-	log.Println("database connected and seeded")
+	createTable(driver)
+	seedData(driver)
+	log.Printf("database connected and seeded (driver=%s)", driver)
 }
 
-func createTable() {
-	_, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS orders (
-			id SERIAL PRIMARY KEY,
-			product_id VARCHAR(50) NOT NULL,
-			quantity INT NOT NULL,
-			status VARCHAR(20) NOT NULL DEFAULT 'pending',
-			created_at TIMESTAMP NOT NULL DEFAULT NOW()
-		)
-	`)
-	if err != nil {
+func createTable(driver string) {
+	var query string
+	if driver == "sqlite3" {
+		query = `
+			CREATE TABLE IF NOT EXISTS orders (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				product_id TEXT NOT NULL,
+				quantity INTEGER NOT NULL,
+				status TEXT NOT NULL DEFAULT 'pending',
+				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)`
+	} else {
+		query = `
+			CREATE TABLE IF NOT EXISTS orders (
+				id SERIAL PRIMARY KEY,
+				product_id VARCHAR(50) NOT NULL,
+				quantity INT NOT NULL,
+				status VARCHAR(20) NOT NULL DEFAULT 'pending',
+				created_at TIMESTAMP NOT NULL DEFAULT NOW()
+			)`
+	}
+	if _, err := db.Exec(query); err != nil {
 		log.Fatalf("failed to create table: %v", err)
 	}
 }
 
-func seedData() {
+func seedData(driver string) {
 	var count int
 	db.QueryRow("SELECT COUNT(*) FROM orders").Scan(&count)
 	if count > 0 {
@@ -82,8 +100,12 @@ func seedData() {
 		{"PROD-002", 10, "pending"},
 		{"PROD-003", 1, "confirmed"},
 	}
+	placeholder := "$1, $2, $3"
+	if driver == "sqlite3" {
+		placeholder = "?, ?, ?"
+	}
 	for _, o := range orders {
-		db.Exec("INSERT INTO orders (product_id, quantity, status) VALUES ($1, $2, $3)",
+		db.Exec("INSERT INTO orders (product_id, quantity, status) VALUES ("+placeholder+")",
 			o.productID, o.quantity, o.status)
 	}
 }
